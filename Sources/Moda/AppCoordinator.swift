@@ -31,10 +31,10 @@ final class AppCoordinator {
   func start() {
     guard !hasStarted else { return }
     hasStarted = true
-    betterDisplayObserver.start()
 
     hudController.onLevelSet = { [weak self] control, level in
-      self?.controlRouter.setLevel(level, for: control)
+      guard let self, self.settings.isControlEnabled(control) else { return nil }
+      return self.controlRouter.setLevel(level, for: control)
     }
 
     interceptor = MediaKeyInterceptor(controller: controlRouter) { snapshot in
@@ -43,23 +43,32 @@ final class AppCoordinator {
       }
     }
 
-    settings.$isEnabled
-      .removeDuplicates()
-      .sink { [weak self] enabled in
-        guard let self else { return }
-        if enabled {
-          self.enableInterception(promptIfNeeded: true)
-        } else {
-          self.interceptor?.stop()
-          self.hudController.hideImmediately()
-        }
+    Publishers.CombineLatest4(
+      settings.$isEnabled,
+      settings.$isVolumeEnabled,
+      settings.$isDisplayBrightnessEnabled,
+      settings.$isKeyboardBrightnessEnabled
+    )
+      .removeDuplicates { $0 == $1 }
+      .sink { [weak self] configuration in
+        self?.applyFeatureConfiguration(
+          isEnabled: configuration.0,
+          volume: configuration.1,
+          displayBrightness: configuration.2,
+          keyboardBrightness: configuration.3,
+          promptIfNeeded: true
+        )
       }
       .store(in: &cancellables)
 
     permissionTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) {
       [weak self] _ in
       Task { @MainActor in
-        guard let self, self.settings.isEnabled else { return }
+        guard
+          let self,
+          self.settings.isEnabled,
+          self.settings.isVolumeEnabled || self.settings.isKeyboardBrightnessEnabled
+        else { return }
         self.enableInterception(promptIfNeeded: false)
       }
     }
@@ -77,7 +86,10 @@ final class AppCoordinator {
   }
 
   func refreshInterception() {
-    guard settings.isEnabled else { return }
+    guard
+      settings.isEnabled,
+      settings.isVolumeEnabled || settings.isKeyboardBrightnessEnabled
+    else { return }
     enableInterception(promptIfNeeded: false)
   }
 
@@ -97,8 +109,39 @@ final class AppCoordinator {
     _ = interceptor?.start()
   }
 
+  private func applyFeatureConfiguration(
+    isEnabled: Bool,
+    volume: Bool,
+    displayBrightness: Bool,
+    keyboardBrightness: Bool,
+    promptIfNeeded: Bool
+  ) {
+    var enabledControls = Set<HUDControlKind>()
+    if isEnabled, volume { enabledControls.insert(.volume) }
+    if isEnabled, displayBrightness { enabledControls.insert(.displayBrightness) }
+    if isEnabled, keyboardBrightness { enabledControls.insert(.keyboardBrightness) }
+    interceptor?.setEnabledControls(enabledControls)
+    hudController.setEnabledControls(enabledControls)
+
+    if isEnabled, displayBrightness {
+      betterDisplayObserver.start()
+    } else {
+      betterDisplayObserver.stop()
+    }
+
+    if isEnabled, volume || keyboardBrightness {
+      enableInterception(promptIfNeeded: promptIfNeeded)
+    } else {
+      interceptor?.stop()
+    }
+
+    if !isEnabled {
+      hudController.hideImmediately()
+    }
+  }
+
   private func present(_ snapshot: HUDSnapshot) {
-    guard settings.isEnabled else { return }
+    guard settings.isControlEnabled(snapshot.control) else { return }
     hudController.show(snapshot: snapshot, dismissAfter: settings.dismissDelay)
   }
 }

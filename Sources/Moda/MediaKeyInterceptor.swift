@@ -8,6 +8,8 @@ final class MediaKeyInterceptor: @unchecked Sendable {
 
   private let controller: MediaKeyControlling
   private let onSnapshot: SnapshotHandler
+  private let enabledControlsLock = NSLock()
+  private var enabledControls = Set(HUDControlKind.allCases)
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
 
@@ -19,6 +21,12 @@ final class MediaKeyInterceptor: @unchecked Sendable {
   var isRunning: Bool {
     guard let eventTap else { return false }
     return CGEvent.tapIsEnabled(tap: eventTap)
+  }
+
+  func setEnabledControls(_ controls: Set<HUDControlKind>) {
+    enabledControlsLock.lock()
+    enabledControls = controls
+    enabledControlsLock.unlock()
   }
 
   @discardableResult
@@ -86,14 +94,17 @@ final class MediaKeyInterceptor: @unchecked Sendable {
       data1: nsEvent.data1,
       modifierFlags: event.flags
     )
+    guard let decoded, isEnabled(MediaKeyRouting.control(for: decoded)) else {
+      return Unmanaged.passUnretained(event)
+    }
     if MediaKeyRouting.shouldDeferToDisplayHandler(decoded) {
       // BetterDisplay remains the sole owner of normal brightness keys. Its
       // distributed OSD notification supplies Moda with the resulting value.
       return Unmanaged.passUnretained(event)
     }
-    let canHandle = decoded.map { controller.canHandle($0) } ?? false
+    let canHandle = controller.canHandle(decoded)
     guard MediaKeyRouting.shouldConsume(decoded, deviceCanHandle: canHandle),
-      let decoded
+      isEnabled(MediaKeyRouting.control(for: decoded))
     else {
       return Unmanaged.passUnretained(event)
     }
@@ -108,5 +119,11 @@ final class MediaKeyInterceptor: @unchecked Sendable {
     // Consume both phases for supported media keys. This prevents macOS from
     // applying the event a second time and suppresses its native HUD.
     return nil
+  }
+
+  private func isEnabled(_ control: HUDControlKind) -> Bool {
+    enabledControlsLock.lock()
+    defer { enabledControlsLock.unlock() }
+    return enabledControls.contains(control)
   }
 }

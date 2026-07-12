@@ -3,14 +3,14 @@ import SwiftUI
 
 struct MenuBarView: View {
   @ObservedObject var settings: SettingsStore
-  @Environment(\.openSettings) private var openSettings
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     Toggle("Enable Moda", isOn: $settings.isEnabled)
 
     Button("Settings…") {
       NSApp.activate(ignoringOtherApps: true)
-      openSettings()
+      openWindow(id: ModaWindow.settings)
     }
     .keyboardShortcut(",", modifiers: .command)
 

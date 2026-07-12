@@ -22,6 +22,12 @@ Moda is a lightweight macOS app that overhauls the built-in volume and brightnes
   <img src="screenshot.png" width="100%" alt="Moda showing a compact vertical volume HUD on the right side of macOS">
 </p>
 
+## Download
+
+Download [Moda v1.0](https://github.com/DakshG07/moda/releases/latest/download/Moda-v1.0.dmg), open the DMG, and drag Moda into Applications.
+
+Moda uses a local development signature rather than Apple notarization. On first launch, right-click Moda in Applications, choose **Open**, and confirm the macOS prompt. Then grant Accessibility access when requested.
+
 ## Features
 
 - Replaces the native volume HUD and controls output volume through Core Audio.
@@ -32,6 +38,7 @@ Moda is a lightweight macOS app that overhauls the built-in volume and brightnes
 - Keeps volume and brightness transition histories separate after dismissal.
 - Handles multiple displays, full-screen Spaces, Reduce Motion, and device changes.
 - Includes configurable dismissal timing and Launch at Login.
+- Provides independent toggles for volume, display brightness, and keyboard brightness.
 
 ## Requirements
 

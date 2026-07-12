@@ -20,6 +20,10 @@ private enum ModaAssets {
   }()
 }
 
+enum ModaWindow {
+  static let settings = "moda-settings"
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -44,13 +48,34 @@ struct ModaApp: App {
     MenuBarExtra {
       MenuBarView(settings: settings)
     } label: {
-      Image(nsImage: ModaAssets.toolbarIcon)
-        .accessibilityLabel("Moda")
+      ModaMenuBarLabel(settings: settings)
     }
     .menuBarExtraStyle(.menu)
 
-    Settings {
+    Window("Moda Settings", id: ModaWindow.settings) {
       SettingsView(settings: settings)
     }
+    .windowResizability(.contentSize)
+  }
+}
+
+private struct ModaMenuBarLabel: View {
+  @ObservedObject var settings: SettingsStore
+  @Environment(\.openWindow) private var openWindow
+  @State private var handledFirstLaunch = false
+
+  var body: some View {
+    Image(nsImage: ModaAssets.toolbarIcon)
+      .accessibilityLabel("Moda")
+      .task {
+        guard
+          !handledFirstLaunch,
+          settings.consumeFirstLaunchSettingsRequest()
+        else { return }
+        handledFirstLaunch = true
+        await Task.yield()
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: ModaWindow.settings)
+      }
   }
 }

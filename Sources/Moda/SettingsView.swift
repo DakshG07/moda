@@ -23,21 +23,33 @@ struct SettingsView: View {
       }
 
       Section("Controls") {
-        featureRow(
+        featureToggle(
           title: "Volume",
           detail: "Volume keys · Moda controls Core Audio",
-          systemImage: "speaker.wave.2.fill"
+          systemImage: "speaker.wave.2.fill",
+          isOn: $settings.isVolumeEnabled
         )
-        featureRow(
+        featureToggle(
           title: "Display brightness",
-          detail: "Brightness keys · Reflected from BetterDisplay",
-          systemImage: "sun.max.fill"
+          detail: betterDisplayStatus.isInstalled
+            ? "Brightness keys · Reflected from BetterDisplay"
+            : "Requires BetterDisplay",
+          systemImage: "sun.max.fill",
+          isOn: $settings.isDisplayBrightnessEnabled,
+          isAvailable: betterDisplayStatus.isInstalled
         )
-        featureRow(
+        featureToggle(
           title: "Keyboard brightness",
           detail: "Command + Brightness keys · Built-in keyboard",
-          systemImage: "keyboard.fill"
+          systemImage: "keyboard.fill",
+          isOn: $settings.isKeyboardBrightnessEnabled
         )
+
+        if !betterDisplayStatus.isInstalled {
+          Text("Install BetterDisplay to enable display-brightness HUD reflection.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
       }
 
       Section("HUD Behavior") {
@@ -129,7 +141,7 @@ struct SettingsView: View {
         }
 
         Text(
-          "Accessibility lets Moda replace volume and Command-Brightness keyboard-backlight events. Normal brightness keys remain under BetterDisplay's control."
+          "Accessibility is required for enabled volume and keyboard-brightness controls. Normal brightness keys remain under BetterDisplay's control."
         )
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -151,7 +163,7 @@ struct SettingsView: View {
       }
     }
     .formStyle(.grouped)
-    .frame(width: 560, height: 650)
+    .frame(width: 560, height: 680)
     .onReceive(permissionRefresh) { _ in
       betterDisplayStatus = BetterDisplaySettingsController.status
       let nowGranted = AccessibilityPermission.isGranted
@@ -164,25 +176,27 @@ struct SettingsView: View {
     }
   }
 
-  private func featureRow(
+  private func featureToggle(
     title: String,
     detail: String,
-    systemImage: String
+    systemImage: String,
+    isOn: Binding<Bool>,
+    isAvailable: Bool = true
   ) -> some View {
-    HStack(spacing: 10) {
-      Image(systemName: systemImage)
-        .foregroundStyle(.secondary)
-        .frame(width: 22)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title)
-        Text(detail)
-          .font(.caption)
+    Toggle(isOn: isOn) {
+      HStack(spacing: 10) {
+        Image(systemName: systemImage)
           .foregroundStyle(.secondary)
+          .frame(width: 22)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+          Text(detail)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
       }
-      Spacer()
-      Text("On")
-        .foregroundStyle(.secondary)
     }
+    .disabled(!isAvailable)
   }
 
   private func statusLabel(_ text: String, isReady: Bool) -> some View {
@@ -196,6 +210,7 @@ struct SettingsView: View {
   private func configureBetterDisplay() {
     do {
       try BetterDisplaySettingsController.configureAndRestart()
+      settings.isDisplayBrightnessEnabled = true
       betterDisplayStatus = BetterDisplaySettingsController.status
       betterDisplayMessage = "Configured. BetterDisplay is restarting."
     } catch {

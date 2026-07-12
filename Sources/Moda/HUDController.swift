@@ -7,6 +7,7 @@ final class HUDController {
   private let model = HUDViewModel()
   private let panel: NSPanel
   private var dismissalTimer: Timer?
+  private var transitionCompletionTimer: Timer?
   private var presentationGeneration = 0
   private var currentDismissDelay = 1.5
   private var currentControl = HUDControlKind.volume
@@ -29,6 +30,7 @@ final class HUDController {
     panel.ignoresMouseEvents = false
     panel.becomesKeyOnlyIfNeeded = true
     panel.hidesOnDeactivate = false
+    panel.animationBehavior = .none
     panel.level = .statusBar
     panel.collectionBehavior = [
       .canJoinAllSpaces,
@@ -85,11 +87,20 @@ final class HUDController {
     present(dismissAfter: delay, targetDisplayID: nil)
   }
 
+  func setEnabledControls(_ controls: Set<HUDControlKind>) {
+    guard panel.isVisible, !controls.contains(currentControl) else { return }
+    dismiss()
+  }
+
   func hideImmediately() {
     dismissalTimer?.invalidate()
     dismissalTimer = nil
+    transitionCompletionTimer?.invalidate()
+    transitionCompletionTimer = nil
+    presentationGeneration += 1
     isPointerInside = false
     panel.orderOut(nil)
+    panel.alphaValue = 1
   }
 
   private func present(dismissAfter delay: Double, targetDisplayID: UInt32?) {
@@ -97,6 +108,8 @@ final class HUDController {
     currentTargetDisplayID = targetDisplayID
     presentationGeneration += 1
     dismissalTimer?.invalidate()
+    transitionCompletionTimer?.invalidate()
+    transitionCompletionTimer = nil
 
     let targetScreen = screen(withDisplayID: targetDisplayID) ?? screenContainingPointer()
     let targetFrame = visibleFrame(on: targetScreen)
@@ -109,6 +122,10 @@ final class HUDController {
       panel.orderFrontRegardless()
     }
 
+    if reduceMotion {
+      panel.setFrame(targetFrame, display: true)
+    }
+
     NSAnimationContext.runAnimationGroup { context in
       context.duration = reduceMotion ? 0.14 : 0.28
       context.timingFunction = CAMediaTimingFunction(
@@ -118,9 +135,8 @@ final class HUDController {
         1.0
       )
       context.allowsImplicitAnimation = true
-      if reduceMotion {
-        panel.animator().alphaValue = 1
-      } else {
+      panel.animator().alphaValue = 1
+      if !reduceMotion {
         panel.animator().setFrame(targetFrame, display: true)
       }
     }
@@ -160,6 +176,8 @@ final class HUDController {
     isPointerInside = isInside
     dismissalTimer?.invalidate()
     dismissalTimer = nil
+    transitionCompletionTimer?.invalidate()
+    transitionCompletionTimer = nil
 
     guard panel.isVisible else { return }
     if !isInside {
@@ -206,14 +224,17 @@ final class HUDController {
     }
 
     dismissalTimer = nil
+    transitionCompletionTimer?.invalidate()
+    transitionCompletionTimer = nil
     presentationGeneration += 1
     let generation = presentationGeneration
     let screen = screenContaining(panel.frame) ?? screenContainingPointer()
     let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     let offscreen = hiddenFrame(on: screen, alignedWith: panel.frame)
+    let duration = reduceMotion ? 0.12 : 0.24
 
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = reduceMotion ? 0.12 : 0.24
+      context.duration = duration
       context.timingFunction = CAMediaTimingFunction(
         controlPoints: 0.4,
         0.0,
@@ -221,18 +242,21 @@ final class HUDController {
         1.0
       )
       context.allowsImplicitAnimation = true
-      if reduceMotion {
-        panel.animator().alphaValue = 0
-      } else {
+      panel.animator().alphaValue = 0
+      if !reduceMotion {
         panel.animator().setFrame(offscreen, display: true)
       }
-    } completionHandler: { [weak self] in
-      Task { @MainActor in
-        guard let self, self.presentationGeneration == generation else { return }
-        self.panel.orderOut(nil)
-        self.panel.alphaValue = 1
-        self.isPointerInside = false
-      }
+    }
+
+    // AppKit can occasionally deliver an implicit-animation completion before
+    // the window's presentation frame catches up. Own the completion deadline
+    // instead, and cancel it whenever input reverses the exit.
+    transitionCompletionTimer = HUDDismissalTimer.schedule(after: duration) { [weak self] in
+      guard let self, self.presentationGeneration == generation else { return }
+      self.transitionCompletionTimer = nil
+      self.panel.orderOut(nil)
+      self.panel.alphaValue = 1
+      self.isPointerInside = false
     }
   }
 

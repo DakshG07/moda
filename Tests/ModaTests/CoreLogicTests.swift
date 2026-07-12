@@ -53,6 +53,7 @@ final class MediaKeyDecoderTests: XCTestCase {
       modifierFlags: []
     )!
     XCTAssertEqual(display.key, .brightnessUp)
+    XCTAssertEqual(MediaKeyRouting.control(for: display), .displayBrightness)
     XCTAssertEqual(
       MediaKeyDecoder.action(for: display),
       .brightness(target: .display, action: .increase(step: 1.0 / 16.0))
@@ -65,6 +66,7 @@ final class MediaKeyDecoderTests: XCTestCase {
       modifierFlags: [.maskCommand]
     )!
     XCTAssertTrue(keyboard.isCommandPressed)
+    XCTAssertEqual(MediaKeyRouting.control(for: keyboard), .keyboardBrightness)
     XCTAssertFalse(MediaKeyRouting.shouldDeferToDisplayHandler(keyboard))
     XCTAssertEqual(
       MediaKeyDecoder.action(for: keyboard),
@@ -98,6 +100,7 @@ final class MediaKeyDecoderTests: XCTestCase {
       modifierFlags: []
     )
     XCTAssertFalse(MediaKeyRouting.shouldConsume(known, deviceCanHandle: false))
+    XCTAssertEqual(MediaKeyRouting.control(for: known!), .volume)
   }
 
   private func data1(keyCode: Int, state: Int) -> Int {
@@ -311,15 +314,29 @@ final class SettingsStoreTests: XCTestCase {
     defer { defaults.removePersistentDomain(forName: suite) }
 
     let first = SettingsStore(defaults: defaults)
+    XCTAssertTrue(first.shouldOpenSettingsOnLaunch)
+    XCTAssertTrue(first.consumeFirstLaunchSettingsRequest())
+    XCTAssertFalse(first.consumeFirstLaunchSettingsRequest())
     XCTAssertTrue(first.isEnabled)
+    XCTAssertTrue(first.isVolumeEnabled)
+    XCTAssertTrue(first.isDisplayBrightnessEnabled)
+    XCTAssertTrue(first.isKeyboardBrightnessEnabled)
     XCTAssertEqual(first.dismissDelay, 1.5)
 
     first.isEnabled = false
+    first.isVolumeEnabled = false
+    first.isDisplayBrightnessEnabled = false
+    first.isKeyboardBrightnessEnabled = false
     first.dismissDelay = 2.3
 
     let second = SettingsStore(defaults: defaults)
+    XCTAssertFalse(second.shouldOpenSettingsOnLaunch)
     XCTAssertFalse(second.isEnabled)
+    XCTAssertFalse(second.isVolumeEnabled)
+    XCTAssertFalse(second.isDisplayBrightnessEnabled)
+    XCTAssertFalse(second.isKeyboardBrightnessEnabled)
     XCTAssertEqual(second.dismissDelay, 2.3, accuracy: 0.001)
+    XCTAssertTrue(second.enabledControls.isEmpty)
   }
 
   func testDismissDelayIsClamped() {

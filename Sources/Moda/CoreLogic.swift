@@ -116,6 +116,15 @@ enum MediaKeyDecoder {
 }
 
 enum MediaKeyRouting {
+  static func control(for event: DecodedMediaKeyEvent) -> HUDControlKind {
+    switch event.key {
+    case .volume:
+      return .volume
+    case .brightnessUp, .brightnessDown:
+      return event.isCommandPressed ? .keyboardBrightness : .displayBrightness
+    }
+  }
+
   static func shouldConsume(_ event: DecodedMediaKeyEvent?, deviceCanHandle: Bool) -> Bool {
     event != nil && deviceCanHandle
   }
@@ -168,7 +177,7 @@ enum BrightnessMath {
   }
 }
 
-enum HUDControlKind: Equatable, Hashable, Sendable {
+enum HUDControlKind: CaseIterable, Equatable, Hashable, Sendable {
   case volume
   case displayBrightness
   case keyboardBrightness
