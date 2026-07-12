@@ -14,7 +14,9 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
 </p>
 
-Moda is a lightweight, menu-bar-only macOS app that replaces the standard media HUD with a compact vertical slider. It is designed to feel native: it flies in from the active display's edge, rolls changing numbers, springs between values, and stays out of the way.
+Moda is a lightweight macOS app that overhauls the built-in volume and brightness dialogs. I always wanted a dialog with precise control that stays out of the way, so I created Moda. It's essentially feature-complete, and I don't plan on adding anything beyond what is already included.
+
+**Tip: Use Command+Brightness keys to adjust keyboard brightness as well.**
 
 ## Features
 
