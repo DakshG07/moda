@@ -46,6 +46,10 @@ Moda uses a local development signature rather than Apple notarization. On first
 
 Keyboard brightness uses a system-private framework and is hardware-dependent. Moda is therefore intended as a personal/local macOS build rather than a Mac App Store app.
 
+## Alternatives
+
+If you're looking for a better, much more polished, and more customizable tool, consider using the paid app [MediaMate](https://wouter01.github.io/MediaMate/) instead. It has many more options and features and directly inspired Moda. I'm not really affiliated with the dev at all, it's just a good tool and I wouldn't want to take away from it.
+
 ## Install from source
 
 ```sh
