@@ -9,7 +9,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/DakshG07/moda/actions/workflows/ci.yml"><img src="https://github.com/DakshG07/moda/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-black?logo=apple" alt="macOS 26 or newer">
   <img src="https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white" alt="Swift 6.2">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
