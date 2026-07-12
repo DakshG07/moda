@@ -35,19 +35,14 @@ Moda uses a local development signature rather than Apple notarization. On first
 - Replaces the native volume HUD and controls output volume through Core Audio.
 - Reflects display brightness changes reported by BetterDisplay.
 - Controls keyboard backlight brightness with Command-Brightness keys.
-- Supports normal, fine-grained Option-Shift, and held-key adjustments.
 - Supports click-and-drag and two-finger scrolling directly on the HUD.
-- Keeps volume and brightness transition histories separate after dismissal.
-- Handles multiple displays, full-screen Spaces, Reduce Motion, and device changes.
-- Includes configurable dismissal timing and Launch at Login.
-- Provides independent toggles for volume, display brightness, and keyboard brightness.
 
 ## Requirements
 
 - macOS 26 or newer.
-- Xcode 26+ with a Swift 6.2-compatible toolchain to build from source.
 - Accessibility permission, used to intercept media keys and suppress the native volume HUD.
 - [BetterDisplay](https://github.com/waydabber/BetterDisplay) for display-brightness reflection.
+- Xcode 26+ with a Swift 6.2-compatible toolchain to build from source.
 
 Keyboard brightness uses a system-private framework and is hardware-dependent. Moda is therefore intended as a personal/local macOS build rather than a Mac App Store app.
 
