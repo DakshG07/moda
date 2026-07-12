@@ -1,0 +1,15 @@
+.build/
+.swiftpm/
+.DS_Store
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Local configuration and signing material
+.env
+.env.*
+*.cer
+*.crt
+*.key
+*.p12
+*.pem

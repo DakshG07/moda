@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible Moda problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Moda. Please avoid including private signing or personal system information.
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 26.4
+    validations:
+      required: true
+  - type: dropdown
+    id: control
+    attributes:
+      label: Affected control
+      options:
+        - Volume
+        - Display brightness / BetterDisplay
+        - Keyboard brightness
+        - HUD interaction or animation
+        - Settings or launch behavior
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch Moda
+        2. Press …
+        3. Observe …
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Relevant hardware and software
+      description: Output device, display, keyboard model, BetterDisplay version, and Reduce Motion state when relevant.
