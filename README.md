@@ -18,6 +18,10 @@ Moda is a lightweight macOS app that overhauls the built-in volume and brightnes
 
 **Tip: Use Command+Brightness keys to adjust keyboard brightness as well.**
 
+<p align="center">
+  <img src="screenshot.png" width="100%" alt="Moda showing a compact vertical volume HUD on the right side of macOS">
+</p>
+
 ## Features
 
 - Replaces the native volume HUD and controls output volume through Core Audio.
