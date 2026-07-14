@@ -8,6 +8,7 @@ final class HUDController {
   private let panel: NSPanel
   private var dismissalTimer: Timer?
   private var transitionCompletionTimer: Timer?
+  private var edgeFeedbackTimer: Timer?
   private var presentationGeneration = 0
   private var currentDismissDelay = 1.5
   private var currentControl = HUDControlKind.volume
@@ -39,13 +40,24 @@ final class HUDController {
       .stationary,
     ]
     panel.contentView = InteractiveHUDContainerView(
-      rootView: VolumeHUDView(model: model)
+      rootView: VolumeHUDView(model: model),
+      currentLevel: { [weak model] in
+        guard let model else { return 0 }
+        return Float32(model.percentage) / 100
+      }
     ) { [weak self] interaction in
       self?.handleInteraction(interaction)
     }
   }
 
-  func show(snapshot: HUDSnapshot, dismissAfter delay: Double) {
+  func show(
+    snapshot: HUDSnapshot,
+    dismissAfter delay: Double,
+    preservesEdgePull: Bool = false
+  ) {
+    if !preservesEdgePull {
+      applyEdgePull(snapshot.edgePull)
+    }
     let transition = levelHistory.transition(
       for: snapshot.control,
       target: snapshot.percentage,
@@ -92,11 +104,19 @@ final class HUDController {
     dismiss()
   }
 
+  func setEdgePull(_ pull: HUDEdgePull?) {
+    guard panel.isVisible || pull == nil else { return }
+    applyEdgePull(pull)
+  }
+
   func hideImmediately() {
     dismissalTimer?.invalidate()
     dismissalTimer = nil
     transitionCompletionTimer?.invalidate()
     transitionCompletionTimer = nil
+    edgeFeedbackTimer?.invalidate()
+    edgeFeedbackTimer = nil
+    model.edgePull = nil
     presentationGeneration += 1
     isPointerInside = false
     panel.orderOut(nil)
@@ -153,6 +173,29 @@ final class HUDController {
     }
   }
 
+  private func applyEdgePull(_ pull: HUDEdgePull?) {
+    edgeFeedbackTimer?.invalidate()
+    edgeFeedbackTimer = nil
+    model.edgePull = pull
+    guard pull != nil else { return }
+
+    // Key-up releases this immediately. The longer fallback prevents a stuck
+    // elastic state if the event tap is interrupted before key-up arrives;
+    // held-key repeats continually refresh it.
+    edgeFeedbackTimer = HUDDismissalTimer.schedule(after: 0.8) { [weak self] in
+      self?.edgeFeedbackTimer = nil
+      self?.model.edgePull = nil
+    }
+  }
+
+  private func releaseEdgePull(after delay: TimeInterval) {
+    edgeFeedbackTimer?.invalidate()
+    edgeFeedbackTimer = HUDDismissalTimer.schedule(after: delay) { [weak self] in
+      self?.edgeFeedbackTimer = nil
+      self?.model.edgePull = nil
+    }
+  }
+
   private func handleInteraction(_ interaction: HUDInteraction) {
     if case .hoverChanged(let isInside) = interaction {
       handleHoverChanged(isInside)
@@ -160,16 +203,42 @@ final class HUDController {
     }
 
     let requestedLevel: Float32
+    let edgePull: HUDEdgePull?
+    var preservesEdgePull = false
+    var pulsesEdgePull = false
     switch interaction {
-    case .set(let level):
-      requestedLevel = level
-    case .adjust(let delta):
-      requestedLevel = VolumeMath.clamped(Float32(model.percentage) / 100 + delta)
+    case .set(let request):
+      requestedLevel = request.level
+      edgePull = request.edgePull
+    case .adjust(let delta, let edgeFeedback):
+      let requested = Float32(model.percentage) / 100 + delta
+      requestedLevel = VolumeMath.clamped(requested)
+      preservesEdgePull = edgeFeedback == .none
+      pulsesEdgePull = edgeFeedback == .pulse
+      edgePull =
+        if edgeFeedback != .none, requested > 1 {
+          .upper
+        } else if edgeFeedback != .none, requested < 0 {
+          .lower
+        } else {
+          nil
+        }
+    case .edgePull(let pull):
+      applyEdgePull(pull)
+      return
     case .hoverChanged:
       return
     }
-    guard let snapshot = onLevelSet?(currentControl, requestedLevel) else { return }
-    show(snapshot: snapshot, dismissAfter: currentDismissDelay)
+    guard var snapshot = onLevelSet?(currentControl, requestedLevel) else { return }
+    snapshot.edgePull = edgePull
+    show(
+      snapshot: snapshot,
+      dismissAfter: currentDismissDelay,
+      preservesEdgePull: preservesEdgePull
+    )
+    if pulsesEdgePull, edgePull != nil {
+      releaseEdgePull(after: 0.26)
+    }
   }
 
   private func handleHoverChanged(_ isInside: Bool) {
@@ -263,7 +332,8 @@ final class HUDController {
   private func visibleFrame(on screen: NSScreen) -> NSRect {
     let visible = screen.visibleFrame
     return NSRect(
-      x: visible.maxX - (32 * VolumeHUDView.designScale) - VolumeHUDView.size.width,
+      x: visible.maxX - (32 * VolumeHUDView.designScale) - VolumeHUDView.size.width
+        + VolumeHUDView.shadowPadding,
       y: visible.midY - VolumeHUDView.size.height / 2,
       width: VolumeHUDView.size.width,
       height: VolumeHUDView.size.height
@@ -331,10 +401,20 @@ enum HUDDismissalTimer {
 @MainActor
 private final class InteractiveHUDContainerView: NSView {
   private let onAction: (HUDInteraction) -> Void
+  private let currentLevel: () -> Float32
   private var hoverTrackingArea: NSTrackingArea?
+  private var dragStartY: CGFloat?
+  private var dragStartLevel: Float32?
+  private var isDragging = false
+  private var hasPulsedMomentumEdge = false
 
-  init(rootView: VolumeHUDView, onAction: @escaping (HUDInteraction) -> Void) {
+  init(
+    rootView: VolumeHUDView,
+    currentLevel: @escaping () -> Float32,
+    onAction: @escaping (HUDInteraction) -> Void
+  ) {
     self.onAction = onAction
+    self.currentLevel = currentLevel
     super.init(frame: NSRect(origin: .zero, size: VolumeHUDView.size))
 
     let hostingView = NSHostingView(rootView: rootView)
@@ -376,18 +456,45 @@ private final class InteractiveHUDContainerView: NSView {
   }
 
   override func mouseExited(with event: NSEvent) {
+    guard !isDragging else { return }
     onAction(.hoverChanged(isInside: false))
   }
 
   override func mouseDown(with event: NSEvent) {
-    setVolume(from: event)
+    isDragging = true
+    dragStartY = convert(event.locationInWindow, from: nil).y
+    dragStartLevel = currentLevel()
+    onAction(.hoverChanged(isInside: true))
   }
 
   override func mouseDragged(with event: NSEvent) {
-    setVolume(from: event)
+    guard let dragStartY, let dragStartLevel else { return }
+    let currentY = convert(event.locationInWindow, from: nil).y
+    let request = VolumeMath.dragRequest(
+      from: dragStartLevel,
+      verticalDelta: currentY - dragStartY,
+      height: VolumeHUDView.capsuleSize.height
+    )
+    onAction(.set(request: request))
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    isDragging = false
+    dragStartY = nil
+    dragStartLevel = nil
+    onAction(.edgePull(nil))
+    let location = convert(event.locationInWindow, from: nil)
+    onAction(.hoverChanged(isInside: bounds.contains(location)))
   }
 
   override func scrollWheel(with event: NSEvent) {
+    if event.momentumPhase.contains(.began) {
+      hasPulsedMomentumEdge = false
+    }
+    let gestureEnded =
+      event.phase.contains(.ended)
+      || event.phase.contains(.cancelled)
+      || event.momentumPhase.contains(.ended)
     let physicalDeltaY =
       event.isDirectionInvertedFromDevice
       ? -event.scrollingDeltaY
@@ -396,24 +503,49 @@ private final class InteractiveHUDContainerView: NSView {
       deltaY: physicalDeltaY,
       isPrecise: event.hasPreciseScrollingDeltas
     )
-    guard adjustment != 0 else { return }
-    onAction(.adjust(delta: adjustment))
+    if adjustment != 0 {
+      let isMomentum = !event.momentumPhase.isEmpty && !gestureEnded
+      let requestedLevel = currentLevel() + adjustment
+      let momentumOvershoots = requestedLevel > 1 || requestedLevel < 0
+      let edgeFeedback: HUDScrollEdgeFeedback
+      if isMomentum {
+        if momentumOvershoots, !hasPulsedMomentumEdge {
+          edgeFeedback = .pulse
+          hasPulsedMomentumEdge = true
+        } else {
+          edgeFeedback = .none
+        }
+      } else {
+        edgeFeedback = gestureEnded ? .none : .direct
+      }
+      onAction(
+        .adjust(
+          delta: adjustment,
+          edgeFeedback: edgeFeedback
+        )
+      )
+    }
+    if gestureEnded {
+      if event.momentumPhase.contains(.ended) {
+        hasPulsedMomentumEdge = false
+      }
+      onAction(.edgePull(nil))
+    }
   }
 
-  private func setVolume(from event: NSEvent) {
-    let position = convert(event.locationInWindow, from: nil).y
-    let volume = VolumeMath.volume(
-      forVerticalPosition: position,
-      height: bounds.height
-    )
-    onAction(.set(level: volume))
-  }
 }
 
 private enum HUDInteraction {
-  case set(level: Float32)
-  case adjust(delta: Float32)
+  case set(request: HUDLevelRequest)
+  case adjust(delta: Float32, edgeFeedback: HUDScrollEdgeFeedback)
+  case edgePull(HUDEdgePull?)
   case hoverChanged(isInside: Bool)
+}
+
+private enum HUDScrollEdgeFeedback {
+  case direct
+  case pulse
+  case none
 }
 
 extension HUDControlKind {

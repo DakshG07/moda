@@ -19,7 +19,10 @@ final class AppCoordinator {
   private lazy var betterDisplayObserver = BetterDisplayObserver { [weak self] snapshot in
     guard let self else { return }
     self.displayBrightnessController.record(level: snapshot.level)
-    self.present(snapshot)
+    _ = self.interceptor?.reassertPriorityIfNeeded()
+    // The media-key event owns endpoint tension. BetterDisplay's notification
+    // supplies the updated value, but must not immediately clear that tension.
+    self.present(snapshot, preservesEdgePull: true)
   }
   private var interceptor: MediaKeyInterceptor?
   private var permissionTimer: Timer?
@@ -37,7 +40,14 @@ final class AppCoordinator {
       return self.controlRouter.setLevel(level, for: control)
     }
 
-    interceptor = MediaKeyInterceptor(controller: controlRouter) { snapshot in
+    interceptor = MediaKeyInterceptor(
+      controller: controlRouter,
+      onEdgeFeedback: { pull in
+        Task { @MainActor in
+          AppCoordinator.shared.hudController.setEdgePull(pull)
+        }
+      }
+    ) { snapshot in
       Task { @MainActor in
         AppCoordinator.shared.present(snapshot)
       }
@@ -58,6 +68,25 @@ final class AppCoordinator {
           keyboardBrightness: configuration.3,
           promptIfNeeded: true
         )
+      }
+      .store(in: &cancellables)
+
+    NSWorkspace.shared.notificationCenter.publisher(
+      for: NSWorkspace.didLaunchApplicationNotification
+    )
+      .compactMap { notification in
+        notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+          as? NSRunningApplication
+      }
+      .filter {
+        $0.bundleIdentifier == BetterDisplaySettingsController.bundleIdentifier
+      }
+      .sink { [weak self] _ in
+        // Let BetterDisplay finish installing its tap, then place Moda back at
+        // the head of the session tap list.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+          _ = self?.interceptor?.reassertPriorityIfNeeded(force: true)
+        }
       }
       .store(in: &cancellables)
 
@@ -140,8 +169,15 @@ final class AppCoordinator {
     }
   }
 
-  private func present(_ snapshot: HUDSnapshot) {
+  private func present(
+    _ snapshot: HUDSnapshot,
+    preservesEdgePull: Bool = false
+  ) {
     guard settings.isControlEnabled(snapshot.control) else { return }
-    hudController.show(snapshot: snapshot, dismissAfter: settings.dismissDelay)
+    hudController.show(
+      snapshot: snapshot,
+      dismissAfter: settings.dismissDelay,
+      preservesEdgePull: preservesEdgePull
+    )
   }
 }

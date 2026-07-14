@@ -13,7 +13,7 @@ struct BetterDisplayConfigurationStatus: Equatable {
 
 @MainActor
 enum BetterDisplaySettingsController {
-  private static let bundleIdentifier = "pro.betterdisplay.BetterDisplay"
+  static let bundleIdentifier = "pro.betterdisplay.BetterDisplay"
   private static let applicationURL = URL(
     fileURLWithPath: "/Applications/BetterDisplay.app"
   )

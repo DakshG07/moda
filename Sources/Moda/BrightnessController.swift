@@ -85,6 +85,7 @@ final class KeyboardBrightnessController: BrightnessControlling, @unchecked Send
 
 protocol MediaKeyControlling: AnyObject, Sendable {
   func canHandle(_ event: DecodedMediaKeyEvent) -> Bool
+  func currentSnapshot(for control: HUDControlKind) -> HUDSnapshot?
   func perform(_ action: MediaKeyAction) -> HUDSnapshot?
   func setLevel(_ level: Float32, for control: HUDControlKind) -> HUDSnapshot?
 }
@@ -118,6 +119,14 @@ final class SystemControlRouter: MediaKeyControlling, @unchecked Sendable {
       return audio.perform(volumeAction)?.hudSnapshot
     case .brightness(let target, let brightnessAction):
       return controller(for: target).perform(brightnessAction)
+    }
+  }
+
+  func currentSnapshot(for control: HUDControlKind) -> HUDSnapshot? {
+    switch control {
+    case .volume: audio.currentSnapshot()?.hudSnapshot
+    case .displayBrightness: displayBrightness.currentSnapshot()
+    case .keyboardBrightness: keyboardBrightness.currentSnapshot()
     }
   }
 

@@ -5,17 +5,44 @@ import SwiftUI
 final class HUDViewModel: ObservableObject {
   @Published var percentage = 0
   @Published var accessibilityLabel = "Volume"
+  @Published var edgePull: HUDEdgePull?
 }
 
 struct VolumeHUDView: View {
   static let designScale: CGFloat = 1.0 / 3.0
-  static let size = CGSize(width: 157 * designScale, height: 562 * designScale)
+  static let capsuleSize = CGSize(width: 157 * designScale, height: 562 * designScale)
+  static let edgeEffectPadding: CGFloat = 10
+  static let shadowPadding: CGFloat = 4
+  static let size = CGSize(
+    width: capsuleSize.width + shadowPadding * 2,
+    height: capsuleSize.height + edgeEffectPadding * 2
+  )
   static let cornerRadius: CGFloat = 78.5 * designScale
 
   @ObservedObject var model: HUDViewModel
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
+    capsule
+      .scaleEffect(
+        x: edgeScaleX,
+        y: edgeScaleY,
+        anchor: edgeAnchor
+      )
+      .shadow(
+        color: Color.black.opacity(0.14),
+        radius: 2.5,
+        x: 0,
+        y: 1
+      )
+      .animation(edgeAnimation, value: model.edgePull)
+      .frame(width: Self.size.width, height: Self.size.height)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(model.accessibilityLabel)
+      .accessibilityValue("\(model.percentage) percent")
+  }
+
+  private var capsule: some View {
     GeometryReader { geometry in
       let fillHeight = VolumeMath.fillHeight(
         volumePercent: model.percentage,
@@ -37,29 +64,54 @@ struct VolumeHUDView: View {
       }
       .clipShape(Capsule())
       .overlay {
-        Capsule()
-          .strokeBorder(
-            LinearGradient(
-              colors: [
-                Color.white.opacity(0.34),
-                Color.white.opacity(0.12),
-                Color.white.opacity(0.22),
-              ],
-              startPoint: .topLeading,
-              endPoint: .bottomTrailing
-            ),
-            lineWidth: 0.5
-          )
+        ZStack {
+          Capsule()
+            .strokeBorder(Color.black.opacity(0.20), lineWidth: 0.75)
+
+          Capsule()
+            .inset(by: 0.55)
+            .strokeBorder(
+              LinearGradient(
+                colors: [
+                  Color.white.opacity(0.34),
+                  Color.white.opacity(0.10),
+                  Color.white.opacity(0.21),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              ),
+              lineWidth: 0.45
+            )
+        }
       }
     }
-    .frame(width: Self.size.width, height: Self.size.height)
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(model.accessibilityLabel)
-    .accessibilityValue("\(model.percentage) percent")
+    .frame(width: Self.capsuleSize.width, height: Self.capsuleSize.height)
   }
 
   private var fillAnimation: Animation {
     reduceMotion ? .easeOut(duration: 0.12) : .spring(duration: 0.22, bounce: 0.04)
+  }
+
+  private var edgeScaleX: CGFloat {
+    guard !reduceMotion, model.edgePull != nil else { return 1 }
+    return 0.965
+  }
+
+  private var edgeScaleY: CGFloat {
+    guard !reduceMotion, model.edgePull != nil else { return 1 }
+    return 1.045
+  }
+
+  private var edgeAnchor: UnitPoint {
+    switch model.edgePull {
+    case .upper: .bottom
+    case .lower: .top
+    case nil: .center
+    }
+  }
+
+  private var edgeAnimation: Animation {
+    reduceMotion ? .easeOut(duration: 0.10) : .spring(duration: 0.32, bounce: 0.12)
   }
 
   private func fillMask(height: CGFloat) -> some View {

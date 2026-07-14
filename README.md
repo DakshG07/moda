@@ -26,7 +26,7 @@ Moda is a lightweight macOS app that overhauls the built-in volume and brightnes
 
 ## Download
 
-Download [Moda v1.0](https://github.com/DakshG07/moda/releases/latest/download/Moda-v1.0.dmg), open the DMG, and drag Moda into Applications.
+Download [Moda v1.1](https://github.com/DakshG07/moda/releases/latest/download/Moda-v1.1.dmg), open the DMG, and drag Moda into Applications.
 
 Moda uses a local development signature rather than Apple notarization. On first launch, right-click Moda in Applications, choose **Open**, and confirm the macOS prompt. Then grant Accessibility access when requested.
 

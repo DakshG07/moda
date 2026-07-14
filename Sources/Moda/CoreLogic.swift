@@ -28,6 +28,7 @@ struct DecodedMediaKeyEvent: Equatable, Sendable {
   let phase: MediaKeyPhase
   let isFineAdjustment: Bool
   let isCommandPressed: Bool
+  var isRepeat = false
 }
 
 enum VolumeAction: Equatable, Sendable {
@@ -90,7 +91,8 @@ enum MediaKeyDecoder {
       key: key,
       phase: phase,
       isFineAdjustment: isFine,
-      isCommandPressed: modifierFlags.contains(.maskCommand)
+      isCommandPressed: modifierFlags.contains(.maskCommand),
+      isRepeat: (data1 & 0xFF) != 0
     )
   }
 
@@ -153,9 +155,36 @@ enum VolumeMath {
     return totalHeight * CGFloat(clampedPercent) / 100
   }
 
-  static func volume(forVerticalPosition position: CGFloat, height: CGFloat) -> Float32 {
-    guard height > 0 else { return 0 }
-    return clamped(Float32(position / height))
+  static func volume(
+    byDraggingFrom startingVolume: Float32,
+    verticalDelta: CGFloat,
+    height: CGFloat
+  ) -> Float32 {
+    dragRequest(
+      from: startingVolume,
+      verticalDelta: verticalDelta,
+      height: height
+    ).level
+  }
+
+  static func dragRequest(
+    from startingVolume: Float32,
+    verticalDelta: CGFloat,
+    height: CGFloat
+  ) -> HUDLevelRequest {
+    guard height > 0 else {
+      return HUDLevelRequest(level: clamped(startingVolume), edgePull: nil)
+    }
+    let requested = startingVolume + Float32(verticalDelta / height)
+    let edgePull: HUDEdgePull? =
+      if requested > 1 {
+        .upper
+      } else if requested < 0 {
+        .lower
+      } else {
+        nil
+      }
+    return HUDLevelRequest(level: clamped(requested), edgePull: edgePull)
   }
 
   static func scrollAdjustment(deltaY: CGFloat, isPrecise: Bool) -> Float32 {
@@ -181,6 +210,40 @@ enum HUDControlKind: CaseIterable, Equatable, Hashable, Sendable {
   case volume
   case displayBrightness
   case keyboardBrightness
+}
+
+enum HUDEdgePull: Equatable, Sendable {
+  case upper
+  case lower
+}
+
+struct HUDLevelRequest: Equatable, Sendable {
+  let level: Float32
+  let edgePull: HUDEdgePull?
+}
+
+enum HUDEdgeFeedback {
+  static func pull(
+    for event: DecodedMediaKeyEvent,
+    startingLevel: Float32,
+    resultingLevel: Float32
+  ) -> HUDEdgePull? {
+    guard event.phase == .down else { return nil }
+
+    if startingLevel >= 0.999, resultingLevel >= 0.999 {
+      switch event.key {
+      case .volume(.up), .brightnessUp: return .upper
+      case .volume, .brightnessDown: break
+      }
+    }
+    if startingLevel <= 0.001, resultingLevel <= 0.001 {
+      switch event.key {
+      case .volume(.down), .brightnessDown: return .lower
+      case .volume, .brightnessUp: break
+      }
+    }
+    return nil
+  }
 }
 
 struct HUDLevelTransition: Equatable, Sendable {
@@ -209,10 +272,29 @@ enum HUDDismissalPolicy {
   }
 }
 
+enum EventTapPriorityPolicy {
+  static func shouldReassert(
+    lastObservedAt: TimeInterval?,
+    lastReassertedAt: TimeInterval?,
+    now: TimeInterval,
+    observationWindow: TimeInterval = 0.35,
+    cooldown: TimeInterval = 2.0,
+    force: Bool = false
+  ) -> Bool {
+    if let lastReassertedAt, now - lastReassertedAt < cooldown {
+      return false
+    }
+    guard !force else { return true }
+    guard let lastObservedAt else { return true }
+    return now - lastObservedAt > observationWindow
+  }
+}
+
 struct HUDSnapshot: Equatable, Sendable {
   let control: HUDControlKind
   let level: Float32
   var targetDisplayID: UInt32? = nil
+  var edgePull: HUDEdgePull? = nil
 
   var percentage: Int {
     VolumeMath.percentage(for: level, isMuted: false)

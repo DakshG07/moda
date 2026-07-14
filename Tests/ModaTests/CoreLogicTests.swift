@@ -37,7 +37,8 @@ final class MediaKeyDecoderTests: XCTestCase {
         key: .volume(.down),
         phase: .down,
         isFineAdjustment: true,
-        isCommandPressed: false
+        isCommandPressed: false,
+        isRepeat: true
       )
     )
     XCTAssertEqual(
@@ -85,6 +86,68 @@ final class MediaKeyDecoderTests: XCTestCase {
     XCTAssertTrue(MediaKeyRouting.shouldConsume(event, deviceCanHandle: true))
   }
 
+  func testKeysPullImmediatelyOnlyAtTheRequestedBoundary() {
+    let volumeUpRepeat = DecodedMediaKeyEvent(
+      key: .volume(.up),
+      phase: .down,
+      isFineAdjustment: false,
+      isCommandPressed: false,
+      isRepeat: true
+    )
+    XCTAssertEqual(
+      HUDEdgeFeedback.pull(
+        for: volumeUpRepeat,
+        startingLevel: 1,
+        resultingLevel: 1
+      ),
+      .upper
+    )
+    XCTAssertNil(
+      HUDEdgeFeedback.pull(
+        for: volumeUpRepeat,
+        startingLevel: 0.94,
+        resultingLevel: 1
+      )
+    )
+
+    let brightnessDownRepeat = DecodedMediaKeyEvent(
+      key: .brightnessDown,
+      phase: .down,
+      isFineAdjustment: false,
+      isCommandPressed: true,
+      isRepeat: true
+    )
+    XCTAssertEqual(
+      HUDEdgeFeedback.pull(
+        for: brightnessDownRepeat,
+        startingLevel: 0,
+        resultingLevel: 0
+      ),
+      .lower
+    )
+
+    var initialPress = volumeUpRepeat
+    initialPress.isRepeat = false
+    XCTAssertEqual(
+      HUDEdgeFeedback.pull(
+        for: initialPress,
+        startingLevel: 1,
+        resultingLevel: 1
+      ),
+      .upper
+    )
+
+    let keyUp = DecodedMediaKeyEvent(
+      key: .volume(.up),
+      phase: .up,
+      isFineAdjustment: false,
+      isCommandPressed: false
+    )
+    XCTAssertNil(
+      HUDEdgeFeedback.pull(for: keyUp, startingLevel: 1, resultingLevel: 1)
+    )
+  }
+
   func testUnknownAndUnsupportedEventsPassThrough() {
     let unknown = MediaKeyDecoder.decode(
       subtype: 8,
@@ -116,9 +179,36 @@ final class VolumeLogicTests: XCTestCase {
     XCTAssertEqual(VolumeMath.percentage(for: 0.734, isMuted: true), 0)
     XCTAssertEqual(VolumeMath.fillHeight(volumePercent: 50, totalHeight: 562), 281)
     XCTAssertEqual(VolumeMath.fillHeight(volumePercent: 120, totalHeight: 562), 562)
-    XCTAssertEqual(VolumeMath.volume(forVerticalPosition: 140.5, height: 562), 0.25)
-    XCTAssertEqual(VolumeMath.volume(forVerticalPosition: 700, height: 562), 1)
-    XCTAssertEqual(VolumeMath.volume(forVerticalPosition: -20, height: 562), 0)
+    XCTAssertEqual(
+      VolumeMath.volume(byDraggingFrom: 0.6, verticalDelta: 0, height: 562),
+      0.6,
+      accuracy: 0.0001
+    )
+    XCTAssertEqual(
+      VolumeMath.volume(byDraggingFrom: 0.6, verticalDelta: 56.2, height: 562),
+      0.7,
+      accuracy: 0.0001
+    )
+    XCTAssertEqual(
+      VolumeMath.volume(byDraggingFrom: 0.95, verticalDelta: 100, height: 562),
+      1
+    )
+    XCTAssertEqual(
+      VolumeMath.volume(byDraggingFrom: 0.05, verticalDelta: -100, height: 562),
+      0
+    )
+    XCTAssertEqual(
+      VolumeMath.dragRequest(from: 0.5, verticalDelta: 281, height: 562),
+      HUDLevelRequest(level: 1, edgePull: nil)
+    )
+    XCTAssertEqual(
+      VolumeMath.dragRequest(from: 0.5, verticalDelta: 300, height: 562),
+      HUDLevelRequest(level: 1, edgePull: .upper)
+    )
+    XCTAssertEqual(
+      VolumeMath.dragRequest(from: 0.5, verticalDelta: -300, height: 562),
+      HUDLevelRequest(level: 0, edgePull: .lower)
+    )
     XCTAssertEqual(VolumeMath.scrollAdjustment(deltaY: 15, isPrecise: true), 0.05)
     XCTAssertEqual(
       VolumeMath.scrollAdjustment(deltaY: -1, isPrecise: false),
@@ -158,6 +248,39 @@ final class VolumeLogicTests: XCTestCase {
     )
     XCTAssertTrue(
       HUDDismissalPolicy.shouldDismiss(isHovering: false, pointerInsidePanel: false)
+    )
+  }
+
+  func testEventTapPriorityReassertionPolicy() {
+    XCTAssertFalse(
+      EventTapPriorityPolicy.shouldReassert(
+        lastObservedAt: 9.8,
+        lastReassertedAt: nil,
+        now: 10
+      )
+    )
+    XCTAssertTrue(
+      EventTapPriorityPolicy.shouldReassert(
+        lastObservedAt: 9,
+        lastReassertedAt: nil,
+        now: 10
+      )
+    )
+    XCTAssertFalse(
+      EventTapPriorityPolicy.shouldReassert(
+        lastObservedAt: nil,
+        lastReassertedAt: 9,
+        now: 10,
+        force: true
+      )
+    )
+    XCTAssertTrue(
+      EventTapPriorityPolicy.shouldReassert(
+        lastObservedAt: 9.9,
+        lastReassertedAt: 7,
+        now: 10,
+        force: true
+      )
     )
   }
 

@@ -4,17 +4,26 @@ import Foundation
 
 final class MediaKeyInterceptor: @unchecked Sendable {
   typealias SnapshotHandler = @Sendable (HUDSnapshot) -> Void
+  typealias EdgeFeedbackHandler = @Sendable (HUDEdgePull?) -> Void
   private static let systemDefinedEventType: UInt32 = 14
 
   private let controller: MediaKeyControlling
   private let onSnapshot: SnapshotHandler
+  private let onEdgeFeedback: EdgeFeedbackHandler
   private let enabledControlsLock = NSLock()
   private var enabledControls = Set(HUDControlKind.allCases)
+  private var lastDisplayBrightnessEventAt: TimeInterval?
+  private var lastPriorityReassertionAt: TimeInterval?
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
 
-  init(controller: MediaKeyControlling, onSnapshot: @escaping SnapshotHandler) {
+  init(
+    controller: MediaKeyControlling,
+    onEdgeFeedback: @escaping EdgeFeedbackHandler,
+    onSnapshot: @escaping SnapshotHandler
+  ) {
     self.controller = controller
+    self.onEdgeFeedback = onEdgeFeedback
     self.onSnapshot = onSnapshot
   }
 
@@ -27,6 +36,28 @@ final class MediaKeyInterceptor: @unchecked Sendable {
     enabledControlsLock.lock()
     enabledControls = controls
     enabledControlsLock.unlock()
+  }
+
+  @discardableResult
+  func reassertPriorityIfNeeded(force: Bool = false) -> Bool {
+    let now = ProcessInfo.processInfo.systemUptime
+    enabledControlsLock.lock()
+    let shouldReassert = EventTapPriorityPolicy.shouldReassert(
+      lastObservedAt: lastDisplayBrightnessEventAt,
+      lastReassertedAt: lastPriorityReassertionAt,
+      now: now,
+      force: force
+    )
+    if shouldReassert {
+      lastPriorityReassertionAt = now
+    }
+    enabledControlsLock.unlock()
+    guard shouldReassert else { return false }
+
+    // headInsert only orders against taps that already exist. Recreating the
+    // tap moves Moda ahead again if BetterDisplay recreated its own tap later.
+    stop()
+    return start()
   }
 
   @discardableResult
@@ -94,10 +125,31 @@ final class MediaKeyInterceptor: @unchecked Sendable {
       data1: nsEvent.data1,
       modifierFlags: event.flags
     )
-    guard let decoded, isEnabled(MediaKeyRouting.control(for: decoded)) else {
+    guard let decoded else {
       return Unmanaged.passUnretained(event)
     }
+    let control = MediaKeyRouting.control(for: decoded)
+    guard isEnabled(control) else { return Unmanaged.passUnretained(event) }
+    if control == .displayBrightness {
+      enabledControlsLock.lock()
+      lastDisplayBrightnessEventAt = ProcessInfo.processInfo.systemUptime
+      enabledControlsLock.unlock()
+    }
+    if decoded.phase == .up {
+      onEdgeFeedback(nil)
+    }
     if MediaKeyRouting.shouldDeferToDisplayHandler(decoded) {
+      if
+        var snapshot = controller.currentSnapshot(for: .displayBrightness),
+        let edgePull = HUDEdgeFeedback.pull(
+          for: decoded,
+          startingLevel: snapshot.level,
+          resultingLevel: snapshot.level
+        )
+      {
+        snapshot.edgePull = edgePull
+        onSnapshot(snapshot)
+      }
       // BetterDisplay remains the sole owner of normal brightness keys. Its
       // distributed OSD notification supplies Moda with the resulting value.
       return Unmanaged.passUnretained(event)
@@ -110,8 +162,18 @@ final class MediaKeyInterceptor: @unchecked Sendable {
     }
 
     if let action = MediaKeyDecoder.action(for: decoded) {
-      guard let snapshot = controller.perform(action) else {
+      let startingLevel = controller.currentSnapshot(
+        for: control
+      )?.level
+      guard var snapshot = controller.perform(action) else {
         return Unmanaged.passUnretained(event)
+      }
+      if let startingLevel {
+        snapshot.edgePull = HUDEdgeFeedback.pull(
+          for: decoded,
+          startingLevel: startingLevel,
+          resultingLevel: snapshot.level
+        )
       }
       onSnapshot(snapshot)
     }
